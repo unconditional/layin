@@ -17,7 +17,6 @@ class Configuration {
     static Transparency := 255
     static LayoutMap := { 1033: { Name: "EN", Color: "00CC00" }}
     static LayoutScanPeriodMs := 200
-    static IndicatorWinTitle := "LangIndicator"
     static EnableAlwaysOn := true
     static AlwaysOnCursorType := "IBeam"
 
@@ -162,14 +161,9 @@ class IndicatorGui {
         Gui, Color, backgroundColor
     }
 
-    Show(color, text, doHide=true) {
-        OutputDebug, % "Showing indicator GUI: " . A_DefaultGui . " (hwnd: " . this.GuiHwnd . ")"
-
+    Show(xPos, yPos, color, text, doHide=true) {
         GuiControl,, GuiLangName, %text%
         Gui, Color, c%color%
-        MouseGetPos, xPos, yPos
-        xPos := xPos + 15
-        yPos := yPos + 15
         Gui, Show, % "w" . this.Width . " h" . this.Height . " x" . xPos . " y" . yPos . " NoActivate"
         WinSet, Transparent, % this.TransparencyLevel, % "ahk_id " . this.GuiHwnd
 
@@ -184,21 +178,36 @@ class IndicatorGui {
     }
 }
 
-GetActiveLayout() {
-    active_hwnd := WinExist("A")
-    threadID := dllCall("GetWindowThreadProcessId", "uint", active_hwnd, "uint", 0)
-    code := dllCall("GetKeyboardLayout", "uint", threadID, "uint") & 0xFFFF
-    return code
-}
+class Util {
+    GetActiveLayout() {
+        active_hwnd := WinExist("A")
+        threadID := dllCall("GetWindowThreadProcessId", "uint", active_hwnd, "uint", 0)
+        code := dllCall("GetKeyboardLayout", "uint", threadID, "uint") & 0xFFFF
+        return code
+    }
 
-GetCurrentCursor() {
-    return A_cursor
+    GetCurrentCursor() {
+        return A_cursor
+    }
+
+    GetCoordsAtMousePosition() {
+        MouseGetPos, xPos, yPos
+        xPos := xPos + 15
+        yPos := yPos + 15
+        return { x: xPos, y: yPos }
+    }
+
+    GetCoordsAtCaretPosition() {
+        xPos := A_CaretX + 5
+        yPos := A_CaretY + 12
+        return { x: xPos, y: yPos }
+    }
 }
 
 
 Configuration.ReadConfigFile()
 
-ActiveLayout := GetActiveLayout()
+ActiveLayout := Util.GetActiveLayout()
 PreviousLayout := ActiveLayout
 LayoutParams := Configuration.FindLayoutParams(ActiveLayout)
 
@@ -209,30 +218,42 @@ IndicatorGui.Init(Configuration.Width
     , Configuration.DefaultBackground
     , Configuration.Transparency
     , LayoutParams.Name)
-IndicatorGui.Show(LayoutParams.Color, LayoutParams.Name)
+IndicatorCoords := Util.GetCoordsAtMousePosition()
+IndicatorGui.Show(IndicatorCoords.x, IndicatorCoords.y, LayoutParams.Color, LayoutParams.Name)
 
-Cursor := GetCurrentCursor()
+Cursor := Util.GetCurrentCursor()
 PrevCursor := Cursor
 
 loop {
     sleep, Configuration.LayoutScanPeriodMs
 
     AutoHide := false
-    ActiveLayout := GetActiveLayout()
-    Cursor := GetCurrentCursor()
+    ActiveLayout := Util.GetActiveLayout()
 
-    if (Cursor != Configuration.AlwaysOnCursorType) {
-        if (PrevCursor = Configuration.AlwaysOnCursorType) {
-            IndicatorGui.Hide()
+    IndicatorCoords := ""
+    ControlGetFocus, FocusedControl, A
+
+    if (!ErrorLevel) {
+        IndicatorCoords := Util.GetCoordsAtCaretPosition()
+    }
+
+    if (!IndicatorCoords.x) {
+        IndicatorCoords := Util.GetCoordsAtMousePosition()
+        Cursor := Util.GetCurrentCursor()
+
+        if (Cursor != Configuration.AlwaysOnCursorType) {
+            if (PrevCursor = Configuration.AlwaysOnCursorType) {
+                IndicatorGui.Hide()
+            }
+            if (ActiveLayout = PreviousLayout) {
+                continue
+            }
+            AutoHide := true
         }
-        if (ActiveLayout = PreviousLayout) {
-            continue
-        }
-        AutoHide := true
     }
 
     LayoutParams := Configuration.FindLayoutParams(ActiveLayout)
-    IndicatorGui.Show(LayoutParams.Color, LayoutParams.Name, AutoHide)
+    IndicatorGui.Show(IndicatorCoords.x, IndicatorCoords.y, LayoutParams.Color, LayoutParams.Name, AutoHide)
 
     PreviousLayout := ActiveLayout
     PrevCursor := Cursor
